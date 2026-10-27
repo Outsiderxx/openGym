@@ -15,6 +15,12 @@
 // into refill from that point on. The token also stops a stale saved rotation from reclaiming
 // somebody else's queue that happens to hold the same routine ids.
 //
+// SKIPPING — `skipInPass` sets one not-yet-done session aside for the current round only
+// (`S.queue.skipped`, queue.js): it stops being next, and the round completes once everything is
+// done or skipped. It is the loop's own feature: a planner's queue is never skipped here, and no
+// workout is invented for it. The refill that follows starts a pass without the field, so the
+// session is back next round.
+//
 // THE ONE-DAY BOUNDARY — a new pass created by a completion starts the day AFTER the workout
 // that closed the old one. The done rule (queue.js) credits a workout dated on or after
 // `startsOn` whose name matches the routine even when its `start` predates `since` — the
@@ -22,7 +28,7 @@
 // old pass would immediately tick an item of the new one.
 
 import { isoOf, todayISO, uid } from './format.js'
-import { queueOf, queueView } from './queue.js'
+import { queueOf, queueView, queueRemaining } from './queue.js'
 
 const routineIdsOf = w => (Array.isArray(w?.routineIds) ? w.routineIds : (w?.routineId ? [w.routineId] : []))
 const dayAfter = iso => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + 1); return isoOf(d) }
@@ -40,6 +46,7 @@ export const rotationIds = S => {
   return seq.filter((id, i) => seq.indexOf(id) === i && routines.some(r => r.id === id))
 }
 
+// No `skipped`: a skip belongs to the round it was made in, so every new pass starts without one.
 const newPass = (ids, label, rotationId, startsOn, since) => ({ ids, since, startsOn, label, rotationId })
 
 /** Workouts that could have credited `q`'s pass: dated on/after its startsOn, matching one of its ids. */
@@ -85,12 +92,15 @@ export function saveRotation(s, ids, label, today = todayISO(), now = Date.now()
   if (!ids.length) return
   const prev = queueOf(s)
   s.rotation = { id: s.rotation?.id ?? uid(), sequence: ids, label }
+  // What was skipped this round survives an edit, minus sessions the edit took out.
+  const skipped = (prev?.skipped || []).filter(id => ids.includes(id))
   s.queue = {
     ids,
     since: prev?.since ?? now,
     startsOn: prev?.startsOn ?? today,
     label,
     rotationId: s.rotation.id,
+    ...(skipped.length ? { skipped } : {}),
     ...(prev?.strict === true ? { strict: true } : {}),
   }
   // A session dropped from the rotation leaves its future pin behind otherwise — dayPlan then
@@ -189,6 +199,43 @@ const rotate = (seq, afterId) => {
 }
 
 /**
+ * "Skip this round": sets one session of the current pass aside until the next round. Only for a
+ * pass this app manages (the rotationId matches the saved rotation — never a planner's queue) and
+ * only for a session still to do. Its future pin goes with it (sweepPins). When that leaves the
+ * pass complete, the next one starts on the spot, exactly as saveRotation's completion block
+ * does (day after the last crediting workout, `since` clear of it), in the rotation order
+ * continuing after the skipped session, as refillAfter does after the session that closed a
+ * pass. Returns true when the session was skipped.
+ */
+export function skipInPass(s, id, today = todayISO(), now = Date.now()) {
+  const q = queueOf(s)
+  if (!q?.rotationId || !s.rotation?.id || q.rotationId !== s.rotation.id) return false
+  if (!queueRemaining(s).includes(id)) return false
+  s.queue = { ...s.queue, skipped: [...q.skipped, id] }
+  sweepPins(s, [id], today)
+  if (queueView(s, today)?.complete) {
+    const seq = rotationIds(s)
+    // No usable saved sequence to refill from: leave the complete pass, as refillAfter does.
+    if (!seq.length) return true
+    const last = lastCreditDay(s)
+    sweepPins(s, q.ids, today)
+    s.queue = newPass(rotate(seq, id), s.rotation.label || '', s.rotation.id, last ? dayAfter(last) : today, sinceAfter(s, q, now))
+  }
+  return true
+}
+
+/** Takes a session back into the current round. Returns false when it was not skipped (or the pass is not this app's). */
+export function unskipInPass(s, id) {
+  const q = queueOf(s)
+  if (!q?.rotationId || !s.rotation?.id || q.rotationId !== s.rotation.id) return false
+  if (!q.skipped.includes(id)) return false
+  const skipped = q.skipped.filter(x => x !== id)
+  const { skipped: _drop, ...rest } = s.queue
+  s.queue = skipped.length ? { ...rest, skipped } : rest
+  return true
+}
+
+/**
  * Called with the state a finished workout has just been written into. Replaces a COMPLETE pass
  * this app manages with the next one and returns true; returns false — leaving `S.queue`
  * untouched — for an incomplete pass, a queue with no matching `rotationId`, or a managed pass
@@ -204,7 +251,9 @@ export function refillAfter(s, w, today = todayISO(), now = Date.now()) {
   const seq = rotationIds(s)
   if (!isCircular(q.ids, seq)) return false
   const credited = routineIdsOf(w)
-  const last = q.ids.filter(id => credited.includes(id)).at(-1) ?? null
+  // Sessions skipped this round count as touched too: the loop continues after the furthest one
+  // of them, so skipping the last session and then finishing the rest repeats the loop as is.
+  const last = q.ids.filter(id => credited.includes(id) || q.skipped.includes(id)).at(-1) ?? null
   const bound = [w.d, lastCreditDay(s)].filter(Boolean).sort().at(-1)
   sweepPins(s, q.ids, today)
   // The rotation's own label only — never the closing pass's (q.label): once adopted from a

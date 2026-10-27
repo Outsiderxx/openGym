@@ -11,6 +11,7 @@ import {
 import Icon from '../components/Icon.jsx'
 import { Button, Row, Section, Segmented } from '../components/ui.jsx'
 import SwipeRow from '../components/SwipeRow.jsx'
+import { skipRound, unskipRound } from '../components/QueueRow.jsx'
 import { copyRoutine, deleteRoutine, restoreRoutine, routineSnapshot } from '../lib/routines.js'
 import { workoutControls } from '../lib/workout-controls.js'
 import { tappable } from '../lib/use-sheet-keyboard.js'
@@ -272,7 +273,7 @@ function Schedule({ S, update, nav, mode }) {
   const plannedDays = weekOrder(ws).filter(d => extraRoutines(d).length)
   const doneCount = qv ? qv.items.filter(i => i.state === 'done').length : 0
   const stateWord = item => item.state === 'pinned' ? fmtDate(item.on, true)
-    : { done: t('Done'), next: t('Up next'), later: t('Later') }[item.state]
+    : { done: t('Done'), next: t('Up next'), later: t('Later'), skipped: t('Skipped') }[item.state]
   const editing = editLoop && !external
 
   return <>
@@ -333,6 +334,11 @@ function Schedule({ S, update, nav, mode }) {
               <div className="tt">{r?.name ?? id}</div>
               <div className="ss">{item ? stateWord(item) : r ? exCount(r.ex.length) : ''}</div>
             </div>
+            {/* Your own loop only: set a session aside for this round, or take it back. */}
+            {!editing && managed && item?.state === 'skipped' && <button className="plan-textbtn" aria-label={t('Undo skip') + ': ' + (r?.name ?? id)}
+              onClick={() => unskipRound(id)}>{t('Undo skip')}</button>}
+            {!editing && managed && item && !['done', 'skipped'].includes(item.state) && <button className="plan-textbtn dim" aria-label={t('Skip this round') + ': ' + (r?.name ?? id)}
+              onClick={() => skipRound(id)}>{t('Skip this round')}</button>}
             {editing && seq.length > 1 && <button className="plan-handle" aria-label={t('Move {0}', r?.name ?? id)} title={t('Drag to reorder')}
               {...loopReorder.handle(i)}><Icon name="chevronsUpDown" /></button>}
           </div>

@@ -2321,4 +2321,8 @@ export default {
   'Your sports watch, calling you back.': 'আপনার স্পোর্টস ঘড়ি আপনাকে ফিরে ডাকছে।',
   'Coach wants you back on the bar.': 'কোচ আপনাকে আবার বারে চান।',
   'Gentle, for headphones or a quiet room.': 'মৃদু, হেডফোন বা শান্ত ঘরের জন্য।',
+  'Skip this round': 'এই রাউন্ডে বাদ দিন',
+  'Skipped': 'বাদ দেওয়া হয়েছে',
+  'Undo skip': 'বাদ দেওয়া ফিরিয়ে নিন',
+  '{0} is skipped for this round.': 'এই রাউন্ডে {0} বাদ দেওয়া হয়েছে।',
 }

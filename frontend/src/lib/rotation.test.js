@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { scheduleModeOf, queueRecovery, rotationIds, startPass, saveRotation, startNewPass, stopPass, refillAfter, refillIfComplete, chooseRotation, chooseFixedWeek } from './rotation.js'
-import { queueNext, queueRemaining, queueView } from './queue.js'
+import { scheduleModeOf, queueRecovery, rotationIds, startPass, saveRotation, startNewPass, stopPass, refillAfter, refillIfComplete, chooseRotation, chooseFixedWeek, skipInPass, unskipInPass } from './rotation.js'
+import { queueNext, queueRemaining, queueView, queueSkipped, queueDone, weekTally, pinState } from './queue.js'
 import { effectiveRoutineIds } from './history.js'
 
 const routines = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }, { id: 'c', name: 'C' }, { id: 'own', name: 'Core' }]
@@ -403,5 +403,135 @@ describe('a complete managed pass left behind by a sync merge', () => {
     const planner = managed(['a', 'b', 'c'], [w('a', '2026-09-10'), w('b', '2026-09-11'), w('c', TODAY)], { queue: pass(['a', 'b', 'c']) })
     expect(refillIfComplete(planner, TODAY, NOW)).toBe(false)
     expect(refillIfComplete(S(), TODAY, NOW)).toBe(false)
+  })
+})
+
+describe('skipping a session for this round', () => {
+  // A managed pass [a, b, c] with `a` trained since the pass began.
+  const managed = (over = {}, workouts = []) => S({
+    rotation: { id: 'r1', sequence: ['a', 'b', 'c'], label: 'Rotation' },
+    queue: pass(['a', 'b', 'c'], { rotationId: 'r1', ...over }),
+    workouts,
+  })
+
+  it('moves next on to the following session without counting as trained', () => {
+    const s = managed()
+    expect(queueNext(s, TODAY, TODAY)).toBe('a')
+    expect(skipInPass(s, 'a', TODAY, NOW)).toBe(true)
+    expect(s.queue.skipped).toEqual(['a'])
+    expect(queueNext(s, TODAY, TODAY)).toBe('b')
+    expect(queueRemaining(s)).toEqual(['b', 'c'])
+    expect(queueSkipped(s)).toEqual(['a'])
+    expect(queueDone(s)).toEqual([])
+    expect(queueView(s, TODAY).items.map(i => i.state)).toEqual(['skipped', 'next', 'later'])
+    expect(queueView(s, TODAY).complete).toBe(false)
+  })
+
+  it('a skipped session\'s future pin goes with it; a pin left behind reads as no override', () => {
+    const s = managed()
+    s.dayPlan['2026-09-14'] = 'b'
+    skipInPass(s, 'b', TODAY, NOW)
+    expect(s.dayPlan).toEqual({})
+    expect(pinState({ ...s, dayPlan: { x: 'b' } }, 'b')).toBe('done')
+  })
+
+  it('only a session still to do in the current pass can be skipped', () => {
+    const s = managed({}, [w('a', TODAY)])
+    expect(skipInPass(s, 'a', TODAY, NOW)).toBe(false) // already trained
+    expect(skipInPass(s, 'zzz', TODAY, NOW)).toBe(false) // not in the pass
+    skipInPass(s, 'b', TODAY, NOW)
+    expect(skipInPass(s, 'b', TODAY, NOW)).toBe(false) // twice
+    expect(s.queue.skipped).toEqual(['b'])
+  })
+
+  it('a planner\'s queue (or a stale rotation id) cannot be skipped', () => {
+    const external = S({ queue: pass(['a', 'b']) })
+    expect(skipInPass(external, 'a', TODAY, NOW)).toBe(false)
+    expect(external.queue.skipped).toBeUndefined()
+    const foreign = S({ rotation: { id: 'r1', sequence: ['a', 'b'], label: 'x' }, queue: pass(['a', 'b'], { rotationId: 'other' }) })
+    expect(skipInPass(foreign, 'a', TODAY, NOW)).toBe(false)
+    expect(unskipInPass(foreign, 'a')).toBe(false)
+  })
+
+  it('skipping the last session left starts the next round, with no skipped and in the right order', () => {
+    // a and b trained earlier today; c is skipped last -> the loop continues after c: a, b, c
+    const s = managed({}, [w('a', TODAY), w('b', TODAY)])
+    expect(skipInPass(s, 'c', TODAY, NOW)).toBe(true)
+    expect(s.queue.skipped).toBeUndefined()
+    expect(s.queue.ids).toEqual(['a', 'b', 'c'])
+    expect(s.queue.rotationId).toBe('r1')
+    // starts the day after the workouts that credited the old round, since clear of them
+    expect(s.queue.startsOn).toBe('2026-09-13')
+    expect(s.queue.since).toBeGreaterThan(NOW - 1000)
+    expect(queueView(s, TODAY).items.every(i => i.state === 'later' || i.state === 'next')).toBe(true)
+  })
+
+  it('skipping a session in the middle of a finished-otherwise pass continues after it', () => {
+    // a and c trained, b skipped last -> next round begins after b: c, a, b
+    const s = managed({}, [w('a', TODAY), w('c', TODAY)])
+    skipInPass(s, 'b', TODAY, NOW)
+    expect(s.queue.ids).toEqual(['c', 'a', 'b'])
+    expect(s.queue.skipped).toBeUndefined()
+  })
+
+  it('with nothing trained the new round starts today', () => {
+    const s = managed()
+    skipInPass(s, 'a', TODAY, NOW)
+    skipInPass(s, 'b', TODAY, NOW)
+    skipInPass(s, 'c', TODAY, NOW)
+    expect(s.queue).toEqual({ ids: ['a', 'b', 'c'], since: NOW, startsOn: TODAY, label: 'Rotation', rotationId: 'r1' })
+  })
+
+  it('finishing the rest of the round after a skip refills it, and the skip is gone with it', () => {
+    const s = managed({ skipped: ['c'] }, [w('a', TODAY), w('b', TODAY)])
+    expect(refillAfter(s, w('b', TODAY), TODAY, NOW)).toBe(true)
+    expect(s.queue.skipped).toBeUndefined()
+    // c was skipped, so the loop continues after it, not after b
+    expect(s.queue.ids).toEqual(['a', 'b', 'c'])
+    // without the skip the same finish would have begun the next round with c
+    const plain = managed({}, [w('a', TODAY), w('b', TODAY), w('c', TODAY, NOW - 2000)])
+    refillAfter(plain, w('b', TODAY), TODAY, NOW)
+    expect(plain.queue.ids).toEqual(['c', 'a', 'b'])
+  })
+
+  it('refillIfComplete treats a round completed through a skip like any complete round', () => {
+    const s = managed({ skipped: ['c'] }, [w('a', TODAY), w('b', TODAY)])
+    expect(refillIfComplete(s, TODAY, NOW)).toBe(true)
+    expect(s.queue.skipped).toBeUndefined()
+  })
+
+  it('unskip puts the session back in the round', () => {
+    const s = managed()
+    skipInPass(s, 'a', TODAY, NOW)
+    skipInPass(s, 'b', TODAY, NOW)
+    expect(unskipInPass(s, 'a')).toBe(true)
+    expect(s.queue.skipped).toEqual(['b'])
+    expect(queueNext(s, TODAY, TODAY)).toBe('a')
+    expect(unskipInPass(s, 'b')).toBe(true)
+    expect('skipped' in s.queue).toBe(false)
+    expect(unskipInPass(s, 'b')).toBe(false)
+  })
+
+  it('weekTally neither counts a skipped session as planned nor as done', () => {
+    const s = managed()
+    expect(weekTally(s, TODAY)).toEqual({ done: 0, planned: 3 })
+    skipInPass(s, 'a', TODAY, NOW)
+    expect(weekTally(s, TODAY)).toEqual({ done: 0, planned: 2 })
+  })
+
+  it('saving the loop keeps what was skipped, minus sessions the edit took out', () => {
+    const s = managed({ skipped: ['b', 'c'] })
+    saveRotation(s, ['a', 'b'], 'Rotation', TODAY, NOW)
+    expect(s.queue.skipped).toEqual(['b'])
+    saveRotation(s, ['b', 'a'], 'Rotation', TODAY, NOW)
+    expect(s.queue.skipped).toEqual(['b'])
+    saveRotation(s, ['a'], 'Rotation', TODAY, NOW + 1)
+    expect(s.queue.skipped).toBeUndefined()
+  })
+
+  it('starting the loop over clears the skips', () => {
+    const s = managed({ skipped: ['b'] })
+    startNewPass(s, TODAY, NOW)
+    expect(s.queue.skipped).toBeUndefined()
   })
 })

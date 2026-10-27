@@ -15,6 +15,14 @@
 //     rotationId?: string   set only by the in-app rotation editor (lib/rotation.js): this pass
 //                           is managed here and refills itself when complete. A planner's queue
 //                           omits it and is never rewritten by the app.
+//     skipped?: string[]    ids of this pass's sessions the user skipped for THIS round only
+//                           (lib/rotation.js skipInPass; only a pass this app manages gets one).
+//                           A skipped session is neither next nor remaining: the pass completes
+//                           once every session is done or skipped, and the refill that follows
+//                           starts a new pass without the field, so the session is back next
+//                           round. Skipping is not training — the DONE RULE below never reads it,
+//                           a done session is never shown as skipped, and weekTally leaves the
+//                           skipped sessions out of what was planned instead of counting a miss.
 //   }
 //
 // The app writes `S.queue` itself only for the in-app rotation feature (lib/rotation.js, marked
@@ -61,7 +69,9 @@ export const queueOf = S => {
   // payload is never rewritten — normalizing is a read, not a migration.
   const ids = q.ids.filter((id, i) => q.ids.indexOf(id) === i && routines.some(r => r.id === id))
   if (!ids.length) return null
-  return { ...q, ids, startsOn: typeof q.startsOn === 'string' ? q.startsOn : isoOf(new Date(q.since || 0)) }
+  // Only ids the pass still holds count as skipped (an edit or a retired routine drops the rest).
+  const skipped = Array.isArray(q.skipped) ? q.skipped.filter((id, i) => q.skipped.indexOf(id) === i && ids.includes(id)) : []
+  return { ...q, ids, skipped, startsOn: typeof q.startsOn === 'string' ? q.startsOn : isoOf(new Date(q.since || 0)) }
 }
 
 // The DONE RULE for one workout and one session — `isDone` asks it across the log.
@@ -76,10 +86,16 @@ export function queueDone(S) {
   return q ? q.ids.filter(id => isDone(S, q, id)) : []
 }
 
-/** The sessions still to do, in slot order — the first is the next one. `[]` without a queue. */
+/** The sessions still to do, in slot order — the first is the next one. Skipped ones are not to do. `[]` without a queue. */
 export function queueRemaining(S) {
   const q = queueOf(S)
-  return q ? q.ids.filter(id => !isDone(S, q, id)) : []
+  return q ? q.ids.filter(id => !isDone(S, q, id) && !q.skipped.includes(id)) : []
+}
+
+/** The sessions skipped for this round, in slot order — never one already done. `[]` without a queue. */
+export function queueSkipped(S) {
+  const q = queueOf(S)
+  return q ? q.ids.filter(id => q.skipped.includes(id) && !isDone(S, q, id)) : []
 }
 
 /**
@@ -124,17 +140,18 @@ export function queueLiveOn(S, iso, today) {
 /**
  * What a per-date override pointing at `id` means for the queue: 'open' — a pin on a session
  * still to do (its day's session, skipped elsewhere); 'done' — a fulfilled pin, to be read as no
- * override; null — not a queue session (or no queue), the plain override rules apply.
+ * override; null — not a queue session (or no queue), the plain override rules apply. A skipped
+ * session reads 'done' too: a pin left on it is no override, the session just floats away.
  */
 export function pinState(S, id) {
   const q = queueOf(S)
   if (!q || !id || !q.ids.includes(id)) return null
-  return isDone(S, q, id) ? 'done' : 'open'
+  return isDone(S, q, id) || q.skipped.includes(id) ? 'done' : 'open'
 }
 
 /**
  * Everything Home's progress row shows, derived once. `items` keep slot order; `state` is
- * 'done', 'next' (the session for the day the queue answers on — pinned there, or the first
+ * 'done', 'skipped' (given up for this round, see `skipped` above), 'next' (the session for the day the queue answers on — pinned there, or the first
  * undone one not pinned to another day — whether or not the queue is active yet), 'pinned'
  * (given another day, carried as `on`; the earliest such day when there are several) or
  * 'later'. `waiting` = the queue is sitting on a future `startsOn`. null without a queue.
@@ -143,6 +160,7 @@ export function queueView(S, today) {
   const q = queueOf(S)
   if (!q) return null
   const remaining = queueRemaining(S)
+  const skipped = queueSkipped(S)
   const on = today > q.startsOn ? today : q.startsOn
   const next = nextOn(S, remaining, on, today)
   const pins = activePins(S, remaining, today).sort((a, b) => (a.iso < b.iso ? -1 : a.iso > b.iso ? 1 : 0))
@@ -154,7 +172,7 @@ export function queueView(S, today) {
       const pin = id !== next && pins.find(p => p.id === id && p.iso !== on)
       return {
         id, name: nameOf(id),
-        state: !remaining.includes(id) ? 'done' : id === next ? 'next' : pin ? 'pinned' : 'later',
+        state: skipped.includes(id) ? 'skipped' : !remaining.includes(id) ? 'done' : id === next ? 'next' : pin ? 'pinned' : 'later',
         ...(pin ? { on: pin.iso } : {}),
       }
     }),
@@ -177,6 +195,8 @@ export function queueView(S, today) {
  * session through the queue, your Core day as training on top, the two units `planned` added.
  * A queue still ahead of its `startsOn` (queueView's `waiting`) is next week's plan, so until
  * then the card is the calendar-week count alone and the progress row speaks for the coming week.
+ * A session skipped for this round (queue.skipped) is not planned and not done: skipping must not
+ * cost the streak a miss, and it must not look like training either.
  */
 export function weekTally(S, today) {
   const ws = weekStartOf(S)
@@ -199,5 +219,5 @@ export function weekTally(S, today) {
   // (a logged workout keeps its credit even if its routine was deleted since — existence only
   // decides what is PLANNED)
   const other = thisWeek.filter(w => !credited.has(w) || routineIdsOf(w).some(unqueued)).length
-  return { done: queueDone(S).length + other, planned: q.ids.length + ownDays }
+  return { done: queueDone(S).length + other, planned: q.ids.length - queueSkipped(S).length + ownDays }
 }

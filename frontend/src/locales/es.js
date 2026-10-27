@@ -2242,4 +2242,8 @@ export default {
   'Your sports watch, calling you back.': 'Tu reloj deportivo te llama de vuelta.',
   'Coach wants you back on the bar.': 'El coach te quiere de vuelta en la barra.',
   'Gentle, for headphones or a quiet room.': 'Suave, para auriculares o una sala tranquila.',
+  'Skip this round': 'Omitir esta ronda',
+  'Skipped': 'Omitida',
+  'Undo skip': 'Deshacer omisión',
+  '{0} is skipped for this round.': '{0} se omite en esta ronda.',
 }

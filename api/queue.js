@@ -26,6 +26,10 @@
 // skips it. A pin on a past day is stale (the session floats again), and a pin on a done session
 // is fulfilled (`pinState === 'done'`) and reads as no override at all. Pins change which session
 // is NEXT, never what counts as DONE, so the tally a planner reads is untouched.
+//
+// SKIPPED (the frontend's `S.queue.skipped`, set only for the app's own rotation): ids the user
+// set aside for the current round. A skipped session is neither next nor remaining here, so a
+// reminder never names it; a pin left on it reads as fulfilled ('done'). It is not DONE either.
 function routineIdsOf(w) {
   return Array.isArray(w.routineIds) ? w.routineIds : (w.routineId ? [w.routineId] : []);
 }
@@ -59,7 +63,8 @@ function queueOf(S) {
   // First valid occurrence of each id — the same normalization as the frontend's queueOf.
   const ids = q.ids.filter((id, i) => q.ids.indexOf(id) === i && (S.routines || []).some(r => r?.id === id));
   if (!ids.length) return null;
-  return { ids, startsOn };
+  const skipped = Array.isArray(q.skipped) ? q.skipped.filter(id => ids.includes(id)) : [];
+  return { ids, skipped, startsOn };
 }
 // The reminder tick only ever asks "what's next right now" — there is no separate "today" to
 // preview a different date against, so `today` in the spec's `next(iso, today)` is just `iso`.
@@ -68,7 +73,7 @@ function queueOf(S) {
 function queueNext(S, iso) {
   const q = queueOf(S);
   if (!q || iso < q.startsOn) return null;
-  const remaining = q.ids.filter(id => !queueDone(S, id, q.startsOn));
+  const remaining = q.ids.filter(id => !q.skipped.includes(id) && !queueDone(S, id, q.startsOn));
   const pins = Object.entries(S.dayPlan || {}).filter(([d, id]) => d >= iso && remaining.includes(id));
   const here = pins.find(([d]) => d === iso);
   if (here) return here[1];
@@ -82,7 +87,7 @@ function queueNext(S, iso) {
 export function pinState(S, id) {
   const q = queueOf(S);
   if (!q || !id || !q.ids.includes(id)) return null;
-  return queueDone(S, id, q.startsOn) ? 'done' : 'open';
+  return q.skipped.includes(id) || queueDone(S, id, q.startsOn) ? 'done' : 'open';
 }
 
 // A weekday can hold a routine-id list (combine routines); the reminder only needs the first.
@@ -111,5 +116,5 @@ export function effectiveRoutineId(S, iso) {
 // "the queue's day" is any day from startsOn on.)
 export function queueLiveOn(S, iso) {
   const q = queueOf(S);
-  return !!q && iso >= q.startsOn && q.ids.some(id => !queueDone(S, id, q.startsOn));
+  return !!q && iso >= q.startsOn && q.ids.some(id => !q.skipped.includes(id) && !queueDone(S, id, q.startsOn));
 }

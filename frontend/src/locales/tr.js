@@ -2242,4 +2242,8 @@ export default {
   'Your sports watch, calling you back.': 'Spor saatin seni geri çağırıyor.',
   'Coach wants you back on the bar.': 'Koç seni bara geri bekliyor.',
   'Gentle, for headphones or a quiet room.': 'Sakin, kulaklık ya da sessiz bir oda için.',
+  'Skip this round': 'Bu turda atla',
+  'Skipped': 'Atlandı',
+  'Undo skip': 'Atlamayı geri al',
+  '{0} is skipped for this round.': '{0} bu turda atlandı.',
 }

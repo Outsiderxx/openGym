@@ -2242,4 +2242,8 @@ export default {
   'Your sports watch, calling you back.': 'O teu relógio desportivo a chamar-te de volta.',
   'Coach wants you back on the bar.': 'O coach quer-te de volta à barra.',
   'Gentle, for headphones or a quiet room.': 'Suave, para auscultadores ou uma sala sossegada.',
+  'Skip this round': 'Saltar esta ronda',
+  'Skipped': 'Saltada',
+  'Undo skip': 'Anular salto',
+  '{0} is skipped for this round.': '{0} foi saltada nesta ronda.',
 }

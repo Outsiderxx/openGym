@@ -2242,4 +2242,8 @@ export default {
   'Your sports watch, calling you back.': '스포츠 시계가 다시 부르고 있어요.',
   'Coach wants you back on the bar.': '코치가 바 앞으로 돌아오래요.',
   'Gentle, for headphones or a quiet room.': '이어폰이나 조용한 곳에 어울려요.',
+  'Skip this round': '이번 라운드 건너뛰기',
+  'Skipped': '건너뜀',
+  'Undo skip': '건너뛰기 취소',
+  '{0} is skipped for this round.': '{0}은(는) 이번 라운드에서 건너뜁니다.',
 }

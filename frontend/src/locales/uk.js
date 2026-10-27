@@ -2239,4 +2239,8 @@ export default {
   'Your sports watch, calling you back.': 'Ваш спортивний годинник кличе вас назад.',
   'Coach wants you back on the bar.': 'Тренер чекає вас назад біля штанги.',
   'Gentle, for headphones or a quiet room.': 'Тихий, для навушників або спокійної кімнати.',
+  'Skip this round': 'Пропустити в цьому колі',
+  'Skipped': 'Пропущено',
+  'Undo skip': 'Скасувати пропуск',
+  '{0} is skipped for this round.': '{0} пропущено в цьому колі.',
 }

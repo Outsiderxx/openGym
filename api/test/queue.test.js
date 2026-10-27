@@ -250,3 +250,18 @@ test('queue: a strict pass (the app\'s "Start new pass") ignores a same-named wo
   const after = { ...strict, workouts: [early, { ...early, start: 2000 }] };
   assert.equal(effectiveRoutineId(after, '2026-09-07'), 'r2');
 });
+
+test('queue: a skipped session is not next, and a pin left on it is no override', () => {
+  const S = { ...base, queue: { ids: ['r1', 'r2', 'r3'], skipped: ['r1'], since: 1000, startsOn: '2026-09-07', label: 'R', rotationId: 'x' } };
+  assert.equal(effectiveRoutineId(S, '2026-09-08'), 'r2'); // r1 would be first, it is skipped
+  assert.equal(pinState(S, 'r1'), 'done');
+  assert.equal(pinState(S, 'r2'), 'open');
+  // a stale pin on the skipped session reads as no override; the floating rule answers
+  const pinned = { ...S, dayPlan: { '2026-09-09': 'r1' } };
+  assert.equal(effectiveRoutineId(pinned, '2026-09-09'), 'r2');
+  // skipped is not done: the whole round skipped leaves nothing to name, so the weekday answers
+  const all = { ...S, week: { 3: 'r3' }, queue: { ...S.queue, skipped: ['r1', 'r2', 'r3'] } };
+  assert.equal(effectiveRoutineId(all, '2026-09-09'), 'r3'); // Wednesday's weekday routine, queue no longer live
+  // ids the queue no longer holds are ignored
+  assert.equal(effectiveRoutineId({ ...S, queue: { ...S.queue, skipped: ['gone'] } }, '2026-09-08'), 'r1');
+});

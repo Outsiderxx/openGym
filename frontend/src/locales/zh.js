@@ -2242,4 +2242,8 @@ export default {
   'Your sports watch, calling you back.': '你的运动手表在叫你回来。',
   'Coach wants you back on the bar.': '教练等你回到杠铃前。',
   'Gentle, for headphones or a quiet room.': '轻柔，适合耳机或安静的房间。',
+  'Skip this round': '本轮跳过',
+  'Skipped': '已跳过',
+  'Undo skip': '取消跳过',
+  '{0} is skipped for this round.': '{0} 本轮已跳过。',
 }

@@ -2245,4 +2245,8 @@ export default {
   'Your sports watch, calling you back.': 'A sportórád visszahív.',
   'Coach wants you back on the bar.': 'Az edző visszavár a rúdhoz.',
   'Gentle, for headphones or a quiet room.': 'Halk, fülhallgatóhoz vagy csendes helyre.',
+  'Skip this round': 'Kihagyás ebben a körben',
+  'Skipped': 'Kihagyva',
+  'Undo skip': 'Kihagyás visszavonása',
+  '{0} is skipped for this round.': '{0} ki van hagyva ebben a körben.',
 }
