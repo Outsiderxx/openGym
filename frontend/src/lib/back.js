@@ -6,37 +6,39 @@
 // packaged app: they only ever worked in a browser tab, where the browser walks history
 // itself.
 //
-// Once a `backButton` listener exists, the plugin stops falling through to finish() —
-// back can then ONLY leave the app through App.exitApp(), which is why the last step is
-// an explicit press-again-to-exit rather than a silent no-op.
+// Once a `backButton` listener exists, the plugin stops falling through to finish().
+//
+// Back used to walk the WebView history, which meant every tab switch and every page ever
+// opened came back one press at a time: after a while in the app, getting out took a long
+// string of presses through screens already left behind. It now works the way Android apps
+// with a bottom bar do: a sheet closes first, any other screen goes straight to Home, and
+// back on Home sends the app to the background (minimize, not exit, so a running workout
+// and its rest timer are where they were when the app comes back).
 import { MOBILE } from './mobile.js'
 import { useUI } from '../store/useUI.js'
-import { t } from './i18n.js'
+import { nav } from './nav.js'
 
-// How long a first back press stays armed as "press again to exit" (the toast shows 2.2s).
-export const EXIT_WINDOW = 2000
+export const HOME = '/home'
 
-// What a back press means, given what is on screen. Pure, so the table below is testable.
-export function decideBack({ top, canGoBack, exitArmed }) {
-  if (top) return top.locked ? 'ignore' : 'sheet'   // a locked sheet swallows back on purpose
-  if (canGoBack) return 'history'                   // a page/tab we pushed ourselves
-  return exitArmed ? 'exit' : 'arm-exit'
+// The route a hash URL points at: "#/plan/r/1?x=1" -> "/plan/r/1".
+export function routeOf(hash) {
+  const path = String(hash || '').replace(/^#/, '').split(/[?#]/)[0]
+  return path || '/'
 }
 
-export function makeBackHandler({ getSheets, closeSheet, toast, goBack, exit, now = Date.now }) {
-  let armedAt = -Infinity
-  return (ev = {}) => {
+// What a back press means, given what is on screen. Pure, so the table below is testable.
+export function decideBack({ top, route }) {
+  if (top) return top.locked ? 'ignore' : 'sheet'   // a locked sheet swallows back on purpose
+  return route === HOME ? 'minimize' : 'home'
+}
+
+export function makeBackHandler({ getSheets, closeSheet, getRoute, goHome, minimize }) {
+  return () => {
     const sheets = getSheets()
-    const action = decideBack({
-      top: sheets[sheets.length - 1],
-      canGoBack: !!ev.canGoBack,
-      exitArmed: now() - armedAt < EXIT_WINDOW,
-    })
-    if (action !== 'arm-exit') armedAt = -Infinity
+    const action = decideBack({ top: sheets[sheets.length - 1], route: getRoute() })
     if (action === 'sheet') closeSheet(sheets[sheets.length - 1].id)
-    else if (action === 'history') goBack()
-    else if (action === 'arm-exit') { armedAt = now(); toast(t('Press back again to exit')) }
-    else if (action === 'exit') exit()
+    else if (action === 'home') goHome()
+    else if (action === 'minimize') minimize()
     return action
   }
 }
@@ -50,9 +52,10 @@ export async function initBackButton() {
     const handler = makeBackHandler({
       getSheets: () => useUI.getState().sheets,
       closeSheet: id => useUI.getState().closeSheet(id),
-      toast: msg => useUI.getState().toast(msg),
-      goBack: () => window.history.back(),
-      exit: () => App.exitApp(),
+      getRoute: () => routeOf(window.location.hash),
+      // Replace, so the history under Home does not keep growing with every press.
+      goHome: () => nav(HOME, { replace: true }),
+      minimize: () => App.minimizeApp(),
     })
     const sub = await App.addListener('backButton', handler)
     return () => sub.remove()
