@@ -12,15 +12,23 @@ const workSets = entry => (Array.isArray(entry?.sets) ? entry.sets : [])
   .map(s => ({ w: Number(s.w) || 0, r: Math.round(Number(s.r)), ...(isFailureSet(s) ? { f: true } : {}) }))
 
 const top = sets => sets.reduce((m, s) => Math.max(m, s.w), 0)
-const reps = sets => sets.reduce((n, s) => n + s.r, 0)
+const repsAt = (sets, w) => sets.reduce((n, s) => n + (Math.abs(s.w - w) < 1e-9 ? s.r : 0), 0)
+const volume = sets => sets.reduce((v, s) => v + s.w * s.r, 0)
 
-/** -1, 0 or 1: today against last time, by the heaviest set first, then by total reps. */
+/**
+ * -1, 0 or 1: today against last time, by the heaviest set first, then by the reps done at that
+ * weight, then by volume. Reps at a lighter weight are not counted against reps at the top
+ * weight: 70×6,6,6,6 after 70×6,6,4 · 60×9 is up, though the second has one rep more in all.
+ */
 export function trendOf(today, last) {
   if (!last?.length) return null
-  const dw = top(today) - top(last)
+  const t = top(today)
+  const dw = t - top(last)
   if (Math.abs(dw) > 1e-9) return dw > 0 ? 1 : -1
-  const dr = reps(today) - reps(last)
-  return dr ? Math.sign(dr) : 0
+  const dr = repsAt(today, t) - repsAt(last, t)
+  if (dr) return Math.sign(dr)
+  const dv = volume(today) - volume(last)
+  return Math.abs(dv) > 1e-9 ? Math.sign(dv) : 0
 }
 
 /** Rows for the summary of `w`, read from `st` (which already holds `w`). Cardio and timed sets are left out. */

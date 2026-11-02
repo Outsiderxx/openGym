@@ -13,6 +13,19 @@ describe('last time and next time on the finish summary (#324)', () => {
     expect(trendOf([set(60, 5)], [set(60, 5)])).toBe(0)
     expect(trendOf([set(60, 5)], null)).toBeNull()
   })
+  it('does not count reps at a lighter weight against reps at the top weight', () => {
+    // 70×6,6,6,6 after 70×6,6,4 · 60×9: one rep fewer in all, but 8 more at 70 kg.
+    expect(trendOf([set(70, 6), set(70, 6), set(70, 6), set(70, 6)],
+      [set(70, 6), set(70, 6), set(70, 4), set(60, 9)])).toBe(1)
+    // 20×12,12,10 after 20×10 · 15×12,12,10: one set fewer, but 24 more reps at 20 kg.
+    expect(trendOf([set(20, 12), set(20, 12), set(20, 10)],
+      [set(20, 10), set(15, 12), set(15, 12), set(15, 10)])).toBe(1)
+  })
+  it('breaks a tie at the top weight on volume', () => {
+    expect(trendOf([set(70, 6), set(60, 8)], [set(70, 6), set(60, 6)])).toBe(1)
+    expect(trendOf([set(70, 6)], [set(70, 6), set(50, 5)])).toBe(-1)
+    expect(trendOf([set(70, 6), set(60, 5)], [set(70, 6), set(60, 5)])).toBe(0)
+  })
   it('finds the previous session of the exercise and leaves warm-ups out', () => {
     const prev = workout('w1', '2026-10-01', [set(20, 5, { phase: 'warmup' }), set(60, 5), set(60, 5), set(60, 4)])
     const now = workout('w2', '2026-10-03', [set(60, 5), set(60, 5), set(60, 5)])
