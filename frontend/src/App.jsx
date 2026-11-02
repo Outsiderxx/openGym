@@ -249,7 +249,7 @@ function Shell() {
 export default function App() {
   const boot = useStore(s => s.boot)
   useEffect(() => { boot() }, [boot])
-  // Android system back — sheet, then page, then press-again-to-exit (see lib/back.js)
+  // Android system back — sheet, then Home, then minimize (see lib/back.js)
   useEffect(() => {
     let stop = null, gone = false
     initBackButton().then(fn => { if (gone) fn(); else stop = fn })
