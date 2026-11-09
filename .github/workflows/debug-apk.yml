@@ -2,13 +2,18 @@
 # ANDROID_KEYSTORE_PASSWORD secrets set, it is the release app ("openGym"), signed with that one
 # fixed key so every later build installs over the last. Without them it falls back to the debug
 # app ("openGym Test", installs beside the official one; a fresh key per run, so no in-place
-# updates). Download it from the run's Artifacts.
+# updates). Download it from the run's Artifacts, or, for builds of claude/apk-build, from the
+# Release named after the app's versionName (v1.4.1-fork.1 …): the APK itself, no zip. A second
+# build of the same version replaces that Release's APK rather than adding another Release.
 name: Debug APK
 
 on:
   push:
     branches: [develop, 'claude/**']
   workflow_dispatch:
+
+permissions:
+  contents: write   # the Release below
 
 jobs:
   apk:
@@ -53,3 +58,21 @@ jobs:
         with:
           name: openGym-${{ github.sha }}
           path: ${{ runner.temp }}/out/*.apk
+      - name: Publish Release
+        if: github.ref == 'refs/heads/claude/apk-build'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}   # a fork: never let gh pick the parent repo
+        run: |
+          set -eu
+          VER="$(sed -n 's/^ *versionName "\(.*\)"/\1/p' frontend/android/app/build.gradle)"
+          TAG="v$VER"
+          SRC="$(ls "$RUNNER_TEMP"/out/*.apk | head -1)"
+          case "$SRC" in *-test.apk) APK="openGym-test-$VER.apk" ;; *) APK="openGym-$VER.apk" ;; esac
+          cp "$SRC" "$RUNNER_TEMP/$APK"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$RUNNER_TEMP/$APK" --clobber
+          else
+            gh release create "$TAG" "$RUNNER_TEMP/$APK" --target "$GITHUB_SHA" \
+              --title "openGym $VER" --notes "Built from $GITHUB_SHA."
+          fi
