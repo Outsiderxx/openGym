@@ -356,6 +356,27 @@ const entryIn = (w, exId, rid) => (w.entries || []).find(e => e && e.id === exId
  * or copied routine starts from what you actually lift rather than from nothing.
  */
 export function lastEntryFor(S, exId, rid) {
+  const hit = lastCountingEntry(S, exId, rid)
+  if (!hit) return null
+  const { w, en, done } = hit
+  // `target` is what the session prescribed; finished workouts carry it so labels and the
+  // progression engine can read a session back the way it was logged. Older workouts have
+  // none — modeOf() falls back to the body part for them, which is what they were.
+  const slot = entryRoutineId(w, en)
+  return { d: w.d, sets: done, target: en.target || null, ...(slot ? { rid: slot } : {}), ...(en.planned ? { planned: en.planned } : {}) }
+}
+
+/**
+ * The warm-ups you actually did last time this exercise was trained — the same session
+ * lastEntryFor reads (this routine's own first, a non-counting one skipped), in order. Empty
+ * when that session logged none.
+ */
+export function lastWarmupsFor(S, exId, rid) {
+  const hit = lastCountingEntry(S, exId, rid)
+  return hit ? hit.en.sets.filter(s => s.done && isWarmupRow(s)) : []
+}
+
+function lastCountingEntry(S, exId, rid) {
   if (rid) {
     const own = lastEntryIn(S, exId, rid)
     if (own) return own
@@ -380,15 +401,40 @@ function lastEntryIn(S, exId, rid) {
     // 3x5 come back as a 5-set exercise. Warm-ups are already excluded from volume, records and
     // progression; this is the same rule one level up.
     const done = en.sets.filter(s => s.done && !isWarmupRow(s))
-    // `target` is what the session prescribed; finished workouts carry it so labels and the
-    // progression engine can read a session back the way it was logged. Older workouts have
-    // none — modeOf() falls back to the body part for them, which is what they were.
-    if (done.length) {
-      const slot = entryRoutineId(w, en)
-      return { d: w.d, sets: done, target: en.target || null, ...(slot ? { rid: slot } : {}), ...(en.planned ? { planned: en.planned } : {}) }
-    }
+    if (done.length) return { w, en, done }
   }
   return null
+}
+
+/**
+ * Open the planned warm-ups at what you did in them last time, by position: warm-up 1 at last
+ * session's warm-up 1, and so on. A warm-up is personal — 20 kg × 12 to grease the groove,
+ * then 60 × 8 — and the computed ramp (half the gap to the work weight, at the work reps)
+ * rebuilt it from scratch every session. A row with no logged counterpart keeps the ramp, and
+ * so does one whose logged weight is above today's first work set (a deload, or a plan cut):
+ * a warm-up is never heavier than the set it warms up for. A logged row is never touched.
+ */
+export function carryLastWarmups(rows, lastWarm, mode) {
+  if (!lastWarm?.length || mode === 'cardio') return rows
+  const work = rows.find(r => !isWarmupRow(r))
+  const cap = work ? (Number(work.w) || 0) : 0
+  let k = 0
+  return rows.map(row => {
+    if (!isWarmupRow(row)) return row
+    const prev = lastWarm[k++]
+    if (!prev || row.done) return row
+    if (isSideSet(row)) {
+      if (!isSideSet(prev)) return row
+      if (cap > 0 && Math.max(Number(prev.sides.L?.w) || 0, Number(prev.sides.R?.w) || 0) > cap) return row
+      const side = key => ({ ...row.sides[key], w: Number(prev.sides[key]?.w) || 0, r: Number(prev.sides[key]?.r) || 0, done: false })
+      return syncSideAggregate({ ...row, sides: { L: side('L'), R: side('R') } })
+    }
+    if (isSideSet(prev)) return row
+    const w = Number(prev.w) || 0
+    if (cap > 0 && w > cap) return row
+    if (mode === 'time') return prev.sec > 0 ? { ...row, sec: prev.sec, w } : row
+    return prev.r > 0 ? { ...row, w, r: prev.r } : row
+  })
 }
 
 /** How long any single note may get. Long enough for a paragraph, short enough to stay a note. */
