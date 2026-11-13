@@ -3,7 +3,7 @@
 // to identical entries, or the two paths drift apart the first time a prescription rule changes.
 // Imports both history.js and progression.js (which itself imports history.js); nothing in
 // either imports this file, so there is no cycle.
-import { buildSets, applyIntensifierPlan, modeOf, barFloor } from './history.js'
+import { buildSets, applyIntensifierPlan, modeOf, barFloor, lastWarmupsFor, carryLastWarmups } from './history.js'
 import { isWarmupRow } from './workout-model.js'
 import { nextPrescription, applyPrescription, defaultIncrement, weightIncrement, plannedOf } from './progression.js'
 import { dropGrid } from './plates.js'
@@ -46,7 +46,11 @@ export function buildPlannedEntry(stored, cfg, routine, { noProg = false } = {})
   // Back-off sets step down from the top set by the exercise's own step (lib/backoff.js).
   const backoffStep = modeOf(cfg) === 'reps' && backoffStepOf(cfg, st.unit) ? step : 0
   const built = applyPrescription(buildSets(st, cfg, { step: ramp, rid: routine?.id, useTarget: plan.kind === 'off', planReps }), plan, ramp, barFloor(st, cfg.id))
-  const rows = backoffStep ? applyBackoff(built, backoffStep) : built
+  const backedOff = backoffStep ? applyBackoff(built, backoffStep) : built
+  // Warm-ups open at what you did in them last time, once the work weight is final, so a
+  // carried warm-up is held to today's prescription (history.js carryLastWarmups). A routine
+  // kept out of progression builds at its own numbers and keeps the computed ramp.
+  const rows = noProg ? backedOff : carryLastWarmups(backedOff, lastWarmupsFor(st, cfg.id, routine?.id), modeOf(cfg))
   const sets = applyIntensifierPlan(rows, cfg, dropGrid(st, cfg))
   const target = { ...cfg }
   // Stamped on the session, so the meaning it was logged with stays with it (dumbbells.js).
